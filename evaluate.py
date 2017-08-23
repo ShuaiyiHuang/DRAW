@@ -47,10 +47,10 @@ imgs=model.generate(batch_size)
 print type(imgs)
 print len(imgs[0]),len(imgs),type(imgs[0][0]),imgs[0][0].shape
 
-h_dec_test=Variable(torch.randn(batch_size,dec_size)).cuda()
-gx,gy,delta,gamma,var=model.attention_param(h_dec_test)
-print gx,gy,delta,gamma,var
-Fx,Fy=model.filterbank(gx,gy,delta,var)
+# h_dec_test=Variable(torch.randn(batch_size,dec_size)).cuda()
+# gx,gy,delta,gamma,var=model.attention_param(h_dec_test)
+# print gx,gy,delta,gamma,var
+# Fx,Fy=model.filterbank(gx,gy,delta,var)
 
 for i in range(T):
     img_last=imgs[i]

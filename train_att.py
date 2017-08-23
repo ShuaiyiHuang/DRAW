@@ -7,25 +7,31 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 import torch.optim as optim
+from utility import save_image,xrecons_grid
 
-batch_size=5
+batch_size=64
 enc_size=256
 dec_size=256
 z_size=10
 N=5
 img_size=28
+A=img_size
+B=img_size
 T=5
 use_att=True
 use_cuda=True
 lrt=1e-3
 log_interval=150
 
-train_transforms=transforms.Compose([transforms.ToTensor(),transforms.Normalize([0.5,0.5,0.5],[0.5,0.5,0.5])])
+#you shouldn't use normalize if you use BCE loss and sigmoid for x_recons
+# train_transforms=transforms.Compose([transforms.ToTensor(),transforms.Normalize([0.5,0.5,0.5],[0.5,0.5,0.5])])
+train_transforms=transforms.Compose([transforms.ToTensor()])
 train_dataset=torchvision.datasets.MNIST(root='../data',download=True,train=True,transform=train_transforms)
 train_loader=torch.utils.data.DataLoader(dataset=train_dataset,batch_size=batch_size,shuffle=True,num_workers=4,drop_last=True)
 
 #how many batch=num of images/batch_size
 print "train dataset length:",len(train_loader)
+#with mean and std
 def imshow(input):
     numpy_images=input.numpy()
     ##what is std=[a,b,c] and mean=[e,f,g]??
@@ -226,7 +232,7 @@ else:
 
 
 
-optimizer=optim.Adam(model.parameters(),lr=lrt)
+optimizer=optim.Adam(model.parameters(),lr=lrt,betas=(0.5,0.999))
 BCEcriterion=nn.BCELoss(size_average=True)
 def loss_func(x,mus,sigmas,logsigmas,x_recons):
     kl_terms=[0]*T
@@ -241,14 +247,17 @@ def loss_func(x,mus,sigmas,logsigmas,x_recons):
 
     # print 'shape of sum KL',KL.size()
     KL_ave=torch.mean(KL)
-    BCE=BCEcriterion(x_recons,x)
+    BCE=BCEcriterion(x_recons,x)*A*B
     return KL_ave+BCE
 
 
 
 #train
+# global count
+
 def train(epoch):
     train_loss=0
+    avg_loss=0
     for batch_idx,(data,_) in enumerate(train_loader):
 
         model.zero_grad()
@@ -261,18 +270,77 @@ def train(epoch):
         loss.backward()
         optimizer.step()
         train_loss+=loss.data[0]
+        avg_loss+=loss.cpu().data.numpy()
+        count=count+1
 
-        if batch_idx % log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
-                epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader),
-                loss.data[0] / len(data)))
+        # if batch_idx % log_interval == 0:
+        #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+        #         epoch, batch_idx * len(data), len(train_loader.dataset),
+        #         100. * batch_idx / len(train_loader),
+        #         loss.data[0] / len(data)))
+        if count % 100 == 0:
+            print 'Epoch-{}; Count-{}; loss: {};'.format(epoch, count, avg_loss / 100)
+            if count % 3000 == 0:
+                torch.save(model.state_dict(), 'save/weights_%d.tar' % (count))
+                generate_image(count)
+            avg_loss = 0
 
-    print('====> Epoch: {} Average loss: {:.4f}'.format(
+    print('====> Epoch: {} Average Train loss: {:.4f}'.format(
           epoch, train_loss / len(train_loader.dataset)))
     #Not a directory
     torch.save(model.state_dict(),'../models/DRAW/'+'DRAW'+str(epoch))
 
+    return
+
+def generate_image(count):
+    x = model.generate(batch_size)
+    save_image(x,T,B,A,count)
+
+def save_example_image():
+    train_iter = iter(train_loader)
+    data, _ = train_iter.next()
+    img = data.cpu().numpy().reshape(batch_size, 28, 28)
+    imgs = xrecons_grid(img, B, A)
+    plt.matshow(imgs, cmap=plt.cm.gray)
+    plt.savefig('image/example.png')
+
+def Train():
+    count = 0
+    avg_loss = 0
+    for epoch in range(10):
+        train_loss=0
+
+        for batch_idx,(data,_) in enumerate(train_loader):
+
+            model.zero_grad()
+            if use_cuda:
+                inputs=Variable(data).cuda()
+            else:
+                inputs=Variable(data)
+            mus, sigmas, logsigmas, x_recons=model.forward(inputs)
+            loss=loss_func(inputs,mus,sigmas,logsigmas,x_recons)
+            loss.backward()
+            optimizer.step()
+            train_loss+=loss.data[0]
+            avg_loss+=loss.cpu().data.numpy()
+            count=count+1
+
+            # if batch_idx % log_interval == 0:
+            #     print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+            #         epoch, batch_idx * len(data), len(train_loader.dataset),
+            #         100. * batch_idx / len(train_loader),
+            #         loss.data[0] / len(data)))
+            if count % 100 == 0:
+                print 'Epoch-{}; Count-{}; loss: {};'.format(epoch, count, avg_loss / 100)
+                if count % 3000 == 0:
+                    torch.save(model.state_dict(), 'save/weights_%d.tar' % (count))
+                    generate_image(count)
+                avg_loss = 0
+
+        print('====> Epoch: {} Average Train loss: {:.4f}'.format(
+              epoch, train_loss / len(train_loader.dataset)))
+        generate_image(count)
+        # torch.save(model.state_dict(),'../models/DRAW/'+'DRAW'+str(epoch))
     return
 
 if __name__=='__main__':
@@ -282,8 +350,13 @@ if __name__=='__main__':
     # Fx, Fy = model.filterbank(gx, gy, delta, var)
     # print torch.sum(Fx)
     # print torch.sum(Fy)
-    for i in range(10):
-        train(i)
+    Train()
+
+
+
+
+
+
 
 # x=Variable(images).cuda() if use_cuda else Variable(images)
 # mus,sigmas,logsigmas,x_recons=model.forward(x)
