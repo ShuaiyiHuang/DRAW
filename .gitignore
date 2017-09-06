@@ -1,3 +1,4 @@
-*.pyc
 image*/
 save*/
+.idea/
+*.pyc
