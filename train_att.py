@@ -1,3 +1,5 @@
+import matplotlib
+matplotlib.use('Agg')
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision
@@ -14,7 +16,7 @@ import os
 from config import *
 
 
-
+logging.info('batch_size:{},enc_size:{},dec_size{},z_size{},N{},img_size{},A{},B:{},T:{},use_att{},use_cuda{},lrt{},log_interval{},epoch_num:{}'.format(batch_size,enc_size,dec_size,z_size,N,img_size,A,B,T,use_att,use_cuda,lrt,log_interval,epoch_num))
 #you shouldn't use normalize if you use BCE loss and sigmoid for x_recons
 # train_transforms=transforms.Compose([transforms.ToTensor(),transforms.Normalize([0.5,0.5,0.5],[0.5,0.5,0.5])])
 train_transforms=transforms.Compose([transforms.ToTensor()])
@@ -148,12 +150,12 @@ class DrawModule(nn.Module):
             self.Cs[i]= c_prev + self.write(h_dec_prev)
         #do you need to view x_recons to [batch_size,self.A,self.B] before BCE loss with x=[batch_size,slef.A,self.B]?
         self.x_recons=self.sigmoid(self.Cs[-1]).view(-1,1,self.A,self.B)
-        check_bigger_1=self.x_recons[:]>1
-        sum_bigger_1=torch.sum(check_bigger_1)
-        logging.info('bigger than 1 {}:{}'.format(self.x_recons[check_bigger_1],sum_bigger_1))
-        check_smaller_0=self.x_recons[:]<0
-        sum_smaller_0=torch.sum(check_smaller_0)
-        logging.info('smaller than 0 {}:{}'.format(self.x_recons[check_smaller_0],sum_smaller_0))
+        #check_bigger_1=self.x_recons[:]>1
+        #sum_bigger_1=torch.sum(check_bigger_1)
+        #logging.info('bigger than 1 {}:{}'.format(self.x_recons[check_bigger_1],sum_bigger_1))
+        #check_smaller_0=self.x_recons[:]<0
+        #sum_smaller_0=torch.sum(check_smaller_0)
+        #logging.info('smaller than 0 {}:{}'.format(self.x_recons[check_smaller_0],sum_smaller_0))
         # if (sum_bigger_1>0):
         #     logging.info(self.x_recons[check_bigger_1])
         # if (sum_smaller_0==0):
@@ -334,6 +336,19 @@ def loss_func(x,mus,sigmas,logsigmas,x_recons):
 
     # print 'shape of sum KL',KL.size()
     KL_ave=torch.mean(KL)
+    #check_bigger_1=np.isnan(x[:].cpu().data.numpy())
+    #sum_bigger_1=np.sum(check_bigger_1)
+    #logging.info('x bigger than 1 {}'.format(sum_bigger_1))
+    #check_smaller_0=x[:]<0
+    #sum_smaller_0=torch.sum(check_smaller_0)
+    #logging.info('x smaller than 0 {}:{}'.format(x[check_smaller_0],sum_smaller_0))
+    #check_bigger_1=np.isnan(x_recons[:].cpu().data.numpy())
+    #sum_bigger_1=np.sum(check_bigger_1)
+    #logging.info('bigger than 1 {}'.format(sum_bigger_1))
+    #check_smaller_0=x_recons[:]<0
+    #sum_smaller_0=torch.sum(check_smaller_0)
+    #logging.info('smaller than 0 {}:{}'.format(x_recons[check_smaller_0],sum_smaller_0))
+
     BCE=BCEcriterion(x_recons,x)*A*B
     # print 'BCE:',BCE.cpu().data.numpy()
     return KL_ave+BCE,KL_ave,BCE
@@ -366,6 +381,8 @@ def train(epoch):
         #         epoch, batch_idx * len(data), len(train_loader.dataset),
         #         100. * batch_idx / len(train_loader),
         #         loss.data[0] / len(data)))
+        logging.info('Epoch-{}; Count-{}; loss: {};'.format(epoch, count, loss.cpu().data.numpy()))
+
         if count % 100 == 0:
             logging.info('Epoch-{}; Count-{}; loss: {};'.format(epoch, count, avg_loss / 100))
             if count % 3000 == 0:
@@ -473,7 +490,7 @@ def main():
     plt.figure()
     xs_train = np.arange(0, len(train_loss_list))
     plt.plot(xs_train, train_loss_list)
-    plt.savefig('train_loss_epoch.png', format('png'))
+    plt.savefig('train_loss_epoch.png', format='png')
 
         # torch.save(model.state_dict(),'../models/DRAW/'+'DRAW'+str(epoch))
     return
