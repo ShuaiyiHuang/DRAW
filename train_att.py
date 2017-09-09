@@ -9,8 +9,10 @@ import torch.nn.functional as F
 import torch.optim as optim
 from utility import save_image,xrecons_grid
 import time
+import logging
+import os
 
-batch_size=4
+batch_size=32
 enc_size=256
 dec_size=256
 z_size=10
@@ -35,9 +37,28 @@ test_transforms=transforms.Compose([transforms.ToTensor()])
 test_dataset=torchvision.datasets.MNIST(root='../data',download=True,train=False,transform=test_transforms)
 test_loader=torch.utils.data.DataLoader(dataset=test_dataset,batch_size=batch_size,shuffle=True,num_workers=4,drop_last=True)
 
+logPath = './log'
+fileName = 'log1'
+if os.path.exists(logPath) == False:
+    os.mkdir(logPath)
+# logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
+logFormatter = logging.Formatter("%(asctime)s  %(message)s")
+rootLogger = logging.getLogger()
+# if you forget to set level,you will print nothing
+rootLogger.setLevel(logging.DEBUG)
+
+fileHandler = logging.FileHandler("{0}/{1}.txt".format(logPath, fileName))
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
+
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+rootLogger.addHandler(consoleHandler)
+
+
 #how many batch=num of images/batch_size
-print "train dataloader length:",len(train_loader)
-print 'test dataloader length:',len(test_loader)
+logging.info( "train dataloader length:{}".format(len(train_loader)))
+logging.info('test dataloader length:{}'.format(len(test_loader)))
 #with mean and std
 def imshow(input):
     numpy_images=input.numpy()
@@ -90,11 +111,11 @@ class DrawModule(nn.Module):
 
         #if use_cuda,specify lstm.cuda()?
         if self.use_att:
-            print 'use attention'
+            logging.info('use attention')
             self.encoder=nn.LSTMCell(2*N*N,enc_size).cuda() if use_cuda else nn.LSTMCell(2*N*N,enc_size)
             self.write_linear=nn.Linear(dec_size,self.N*self.N)
         else:
-            print 'no use attention'
+            logging.info('no use attention')
             self.encoder=nn.LSTMCell(2*self.A*self.B,enc_size).cuda() if use_cuda else nn.LSTMCell(2*self.A*self.B,enc_size)
             self.write_linear = nn.Linear(dec_size, self.A * self.B)
 
@@ -177,17 +198,39 @@ class DrawModule(nn.Module):
         return g_x,g_y,delta,gamma,var
 
     def filterbank(self,gx,gy,delta,var):
+        # if use_cuda:
+        #     Fx=Variable(torch.zeros(self.batch_size,self.N,self.A)).cuda()
+        #     Fy=Variable(torch.zeros(self.batch_size,self.N,self.B)).cuda()
+        # for i in range(self.N):
+        #     mu_i_x = gx + (i - self.N * 0.5 - 0.5) * delta
+        #     for a in range(self.A):
+        #         Fx[:,i,a]=torch.exp(-(a-mu_i_x)*(a-mu_i_x)/(2*var))
+        # for j in range(self.N):
+        #     mu_j_y=gy+(j-self.N*0.5-0.5)*delta
+        #     for b in range(self.B):
+        #         Fy[:,j,b]=torch.exp(-(b-mu_j_y)*(b-mu_j_y)/(2*var))
         if use_cuda:
-            Fx=Variable(torch.zeros(self.batch_size,self.N,self.A)).cuda()
-            Fy=Variable(torch.zeros(self.batch_size,self.N,self.B)).cuda()
-        for i in range(self.N):
-            mu_i_x = gx + (i - self.N * 0.5 - 0.5) * delta
-            for a in range(self.A):
-                Fx[:,i,a]=torch.exp(-(a-mu_i_x)*(a-mu_i_x)/(2*var))
-        for j in range(self.N):
-            mu_j_y=gy+(j-self.N*0.5-0.5)*delta
-            for b in range(self.B):
-                Fy[:,j,b]=torch.exp(-(b-mu_j_y)*(b-mu_j_y)/(2*var))
+            mux_init= Variable(torch.unsqueeze(torch.arange(0, self.N), 0).expand(self.batch_size, self.N)).cuda()
+            muy_init= Variable(torch.unsqueeze(torch.arange(0, self.N), 0).expand(self.batch_size, self.N)).cuda()
+            Fx_init = Variable(
+                torch.unsqueeze(torch.unsqueeze(torch.arange(0, self.A), 0).expand(self.N, self.A), 0).expand(self.batch_size, self.N, self.A)).cuda()
+            Fy_init = Variable(
+                torch.unsqueeze(torch.unsqueeze(torch.arange(0, self.A), 0).expand(self.N, self.A), 0).expand(self.batch_size, self.N, self.A)).cuda()
+
+        mux_squeezed = (mux_init - N * 0.5 - 0.5) * delta + gx
+        muy_squeezed = (muy_init - N * 0.5 - 0.5) * delta + gy
+        mux = torch.unsqueeze(mux_squeezed, 2).expand(self.batch_size, self.N, self.A)
+        muy = torch.unsqueeze(muy_squeezed, 2).expand(self.batch_size, self.N, self.A)
+
+        # print 'Fx_init,mux',Fx_init.size(),mux.size()
+
+
+        # print 'Fx now size:', Fx.size()
+        var_expand=torch.unsqueeze(var.expand(self.batch_size,self.N),2).expand(self.batch_size,self.N,self.B)
+        Fx = torch.exp(-(Fx_init - mux) * (Fx_init - mux) / (2 * var_expand))
+        Fy = torch.exp(-(Fy_init - muy) * (Fy_init - muy) / (2 * var_expand))
+
+        # print 'Fx,Fy size:',Fx.size(),Fy.size()
         Zx=torch.unsqueeze(torch.unsqueeze(Fx.sum(2).sum(1),1),2).expand_as(Fx)
         Fx=Fx/Zx
         Zy=torch.unsqueeze(torch.unsqueeze(Fy.sum(2).sum(1),1),2).expand_as(Fy)
@@ -322,13 +365,13 @@ def train(epoch):
         #         100. * batch_idx / len(train_loader),
         #         loss.data[0] / len(data)))
         if count % 100 == 0:
-            print 'Epoch-{}; Count-{}; loss: {};'.format(epoch, count, avg_loss / 100)
+            logging.info('Epoch-{}; Count-{}; loss: {};'.format(epoch, count, avg_loss / 100))
             if count % 3000 == 0:
                 torch.save(model.state_dict(), 'save/weights_%d.tar' % (count))
                 generate_image(count)
             avg_loss = 0
 
-    print('====> Epoch: {} Average Train loss: {:.4f}'.format(
+    logging.info('====> Epoch: {} Average Train loss: {:.4f}'.format(
           epoch, train_loss / len(train_loader)))
     #Not a directory
     torch.save(model.state_dict(),'../models/DRAW/'+'DRAW'+str(epoch))
@@ -359,7 +402,7 @@ def test(epoch):
         loss, KLloss, BCEloss = loss_func(inputs, mus, sigmas, logsigmas, x_recons)
         test_loss+=loss.cpu().data.numpy()
         num_batch+=1
-    print('Epoch-{};Test loss:{}'.format(epoch,test_loss/num_batch))
+    logging.info('Epoch-{};Test loss:{}'.format(epoch,test_loss/num_batch))
 
 def main():
     count = 0
@@ -390,29 +433,27 @@ def main():
             #         epoch, batch_idx * len(data), len(train_loader.dataset),
             #         100. * batch_idx / len(train_loader),
             #         loss.data[0] / len(data)))
+            #to delete this generate image code
+            generate_image(count)
             if count % 100 == 0:
-                print 'Epoch-{}; Count-{}; loss: {};BCE loss:{}'.format(epoch, count, avg_loss / 100,avg_BCEloss/100)
+                logging.info('Epoch-{}; Count-{}; loss: {};BCE loss:{}'.format(epoch, count, avg_loss / 100,avg_BCEloss/100))
                 if count % 3000 == 0:
                     torch.save(model.state_dict(), 'save/weights_%d.tar' % (count))
                     generate_image(count)
                 avg_loss = 0
                 avg_BCEloss=0
         end=time.time()
-        print('====> Epoch: {} Average Train loss: {:.4f};elapsed time:{:.2f}'.format(
-              epoch, train_loss / len(train_loader),end-start))
 
-        # test(epoch)
+        logging.info('====> Epoch: {} Average Train loss: {:.4f};elapsed time:{:.2f}'.format(
+              epoch, train_loss / len(train_loader),end-start))
+        test(epoch)
 
         # torch.save(model.state_dict(),'../models/DRAW/'+'DRAW'+str(epoch))
     return
 
 if __name__=='__main__':
-    # h_dec_test = Variable(torch.randn(batch_size, dec_size)).cuda()
-    # gx, gy, delta, gamma, var = model.attention_param(h_dec_test)
-    # # print gx, gy, delta, gamma, var
-    # Fx, Fy = model.filterbank(gx, gy, delta, var)
-    # print torch.sum(Fx)
-    # print torch.sum(Fy)
+
+
     main()
 
 
