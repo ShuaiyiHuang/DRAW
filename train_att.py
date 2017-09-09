@@ -11,21 +11,9 @@ from utility import save_image,xrecons_grid
 import time
 import logging
 import os
+from config import *
 
-batch_size=32
-enc_size=256
-dec_size=256
-z_size=10
-N=5
-img_size=28
-A=img_size
-B=img_size
-T=10
-use_att=True
-use_cuda=True
-lrt=1e-3
-log_interval=150
-epoch_num=20
+
 
 #you shouldn't use normalize if you use BCE loss and sigmoid for x_recons
 # train_transforms=transforms.Compose([transforms.ToTensor(),transforms.Normalize([0.5,0.5,0.5],[0.5,0.5,0.5])])
@@ -158,9 +146,20 @@ class DrawModule(nn.Module):
             z, self.mus[i], self.logsigmas[i], self.sigmas[i]=self.sampleZ(h_enc_prev)
             h_dec_prev,dec_state=self.Decode(z,(h_dec_prev,dec_state))
             self.Cs[i]= c_prev + self.write(h_dec_prev)
-
+        #do you need to view x_recons to [batch_size,self.A,self.B] before BCE loss with x=[batch_size,slef.A,self.B]?
         self.x_recons=self.sigmoid(self.Cs[-1]).view(-1,1,self.A,self.B)
+        # check_bigger_1=self.x_recons[:]>1
+        # sum_bigger_1=torch.sum(check_bigger_1)
+        # logging.info('bigger than 1 {}:{}'.format(self.x_recons[check_bigger_1],sum_bigger_1))
+        # check_smaller_0=self.x_recons[:]<0
+        # sum_smaller_0=torch.sum(check_smaller_0)
+        # logging.info('smaller than 0 {}:{}'.format(self.x_recons[check_smaller_0],sum_smaller_0))
+        # if (sum_bigger_1>0):
+        #     logging.info(self.x_recons[check_bigger_1])
+        # if (sum_smaller_0==0):
+        #     logging.info('safe')
         return self.mus,self.sigmas,self.logsigmas,self.x_recons
+
 
     def read(self,x,x_hat,h_dec_prev):
         if self.use_att:
@@ -248,6 +247,7 @@ class DrawModule(nn.Module):
 
     def write(self,h_dec):
         if self.use_att:
+            #if use attention return to_write:[batch_szie,self.A,self.B]
             wt=self.write_linear(h_dec)
             wt=wt.view(-1,self.N,self.N)
             gx,gy,gamma,delta,var=self.attention_param(h_dec)
@@ -262,8 +262,9 @@ class DrawModule(nn.Module):
             # print Fy_t.size(),wt.size(),Fx.size(),a.size(),to_write.size()
             # print 'gamma size:',gamma.size()
             to_write=(1/gamma)*to_write.view(-1,self.A*self.B)
-            to_write=to_write.view(-1,self.B,self.A)
+            # to_write=to_write.view(-1,self.B,self.A)
         else:
+            #if not use attention return to_write:[batch_size,self.A*slef.B]
             to_write = self.write_linear(h_dec)
         return to_write
 
@@ -296,8 +297,9 @@ class DrawModule(nn.Module):
 
             z = self.normalSample()
             h_dec, dec_state = self.Decode(z, (h_dec_prev, dec_state))
-            self.Cs[t] = c_prev + self.write_linear(h_dec)
+            self.Cs[t] = c_prev + self.write(h_dec)
             h_dec_prev = h_dec
+        #imgs:list [T,batch_size,self.A*self.B]
         imgs = []
         for img in self.Cs:
             imgs.append(self.sigmoid(img).cpu().data.numpy())
@@ -379,8 +381,9 @@ def train(epoch):
     return
 
 def generate_image(count):
-    x = model.generate(batch_size)
-    save_image(x,T,B,A,count)
+    #imgs:[T,batch_szie,self.A*self.B]
+    imgs = model.generate(batch_size)
+    save_image(imgs,T,B,A,count)
 
 def save_example_image():
     train_iter = iter(train_loader)
@@ -390,6 +393,7 @@ def save_example_image():
     plt.matshow(imgs, cmap=plt.cm.gray)
     plt.savefig('image/example.png')
 
+test_loss_list=[]
 def test(epoch):
     test_loss=0
     num_batch=0
@@ -403,6 +407,10 @@ def test(epoch):
         test_loss+=loss.cpu().data.numpy()
         num_batch+=1
     logging.info('Epoch-{};Test loss:{}'.format(epoch,test_loss/num_batch))
+    test_loss_list.append(test_loss/num_batch)
+
+avg_loss_list=[]
+train_loss_list=[]
 
 def main():
     count = 0
@@ -434,9 +442,9 @@ def main():
             #         100. * batch_idx / len(train_loader),
             #         loss.data[0] / len(data)))
             #to delete this generate image code
-            generate_image(count)
+            # generate_image(count)
             if count % 100 == 0:
-                logging.info('Epoch-{}; Count-{}; loss: {};BCE loss:{}'.format(epoch, count, avg_loss / 100,avg_BCEloss/100))
+                logging.info('Epoch-{}; Count-{}; loss: {}'.format(epoch, count, avg_loss / 100))
                 if count % 3000 == 0:
                     torch.save(model.state_dict(), 'save/weights_%d.tar' % (count))
                     generate_image(count)
@@ -447,6 +455,25 @@ def main():
         logging.info('====> Epoch: {} Average Train loss: {:.4f};elapsed time:{:.2f}'.format(
               epoch, train_loss / len(train_loader),end-start))
         test(epoch)
+
+    np.save('avg_loss_list', np.array(avg_loss_list))
+    np.save('test_loss_list', np.array(test_loss_list))
+    np.save('train_loss_list', np.array(train_loss_list))
+
+    xs_avg = np.arange(0, len(avg_loss_list))
+    plt.figure()
+    plt.plot(xs_avg, avg_loss_list)
+    plt.savefig('avg_loss_batch.png', format='png')
+
+    plt.figure()
+    xs_test = np.arange(0, len(test_loss_list))
+    plt.plot(xs_test, test_loss_list)
+    plt.savefig('test_loss_epoch.png', format='png')
+
+    plt.figure()
+    xs_train = np.arange(0, len(train_loss_list))
+    plt.plot(xs_train, train_loss_list)
+    plt.savefig('train_loss_epoch.png', format('png'))
 
         # torch.save(model.state_dict(),'../models/DRAW/'+'DRAW'+str(epoch))
     return
