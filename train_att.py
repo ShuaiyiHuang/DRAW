@@ -148,12 +148,12 @@ class DrawModule(nn.Module):
             self.Cs[i]= c_prev + self.write(h_dec_prev)
         #do you need to view x_recons to [batch_size,self.A,self.B] before BCE loss with x=[batch_size,slef.A,self.B]?
         self.x_recons=self.sigmoid(self.Cs[-1]).view(-1,1,self.A,self.B)
-        # check_bigger_1=self.x_recons[:]>1
-        # sum_bigger_1=torch.sum(check_bigger_1)
-        # logging.info('bigger than 1 {}:{}'.format(self.x_recons[check_bigger_1],sum_bigger_1))
-        # check_smaller_0=self.x_recons[:]<0
-        # sum_smaller_0=torch.sum(check_smaller_0)
-        # logging.info('smaller than 0 {}:{}'.format(self.x_recons[check_smaller_0],sum_smaller_0))
+        check_bigger_1=self.x_recons[:]>1
+        sum_bigger_1=torch.sum(check_bigger_1)
+        logging.info('bigger than 1 {}:{}'.format(self.x_recons[check_bigger_1],sum_bigger_1))
+        check_smaller_0=self.x_recons[:]<0
+        sum_smaller_0=torch.sum(check_smaller_0)
+        logging.info('smaller than 0 {}:{}'.format(self.x_recons[check_smaller_0],sum_smaller_0))
         # if (sum_bigger_1>0):
         #     logging.info(self.x_recons[check_bigger_1])
         # if (sum_smaller_0==0):
