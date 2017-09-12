@@ -412,10 +412,10 @@ def train(epoch):
 
     return
 
-def generate_image(count):
+def generate_image(count,logpath):
     #imgs:[T,batch_szie,self.A*self.B]
     imgs = model.generate(batch_size)
-    save_image(imgs,T,B,A,count)
+    save_image(imgs,T,B,A,count,logpath)
 
 def save_example_image():
     train_iter = iter(train_loader)
@@ -481,7 +481,7 @@ def main():
             if count % 100 == 0:
                 logging.info('Epoch-{}; Count-{}; loss: {}'.format(epoch, count, avg_loss / 100))
                 if count % 3000 == 0:
-                    torch.save(model.state_dict(), 'save/weights_%d.tar' % (count))
+                    torch.save(model.state_dict(), logpath+'save/weights_%d.tar' % (count))
                     generate_image(count)
                 avg_loss_list.append(avg_loss/100)
                 avg_loss = 0

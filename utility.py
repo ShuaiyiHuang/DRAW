@@ -25,10 +25,10 @@ def xrecons_grid(X,B,A):
 			img[startr:endr,startc:endc]=X[i,j,:,:]
 	return img
 
-def save_image(x,T,B,A,count=0):
+def save_image(x,T,B,A,count=0,logpath):
     for t in range(T):
         img = xrecons_grid(x[t],B,A)
         plt.matshow(img, cmap=plt.cm.gray)
-        imgname = 'image/count_%d_%s_%d.png' % (count,'test', t)  # you can merge using imagemagick, i.e. convert -delay 10 -loop 0 *.png mnist.gif
+        imgname = logpath+'image/count_%d_%s_%d.png' % (count,'test', t)  # you can merge using imagemagick, i.e. convert -delay 10 -loop 0 *.png mnist.gif
         plt.savefig(imgname)
         print(imgname)
