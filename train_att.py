@@ -13,10 +13,23 @@ from utility import save_image,xrecons_grid
 import time
 import logging
 import os
+import argparse
 from config import *
 
+parser = argparse.ArgumentParser(description='tune the DRAW model')
+parser.add_argument('--logpath', type=str, default='../result/DRAW/exp03',
+                    help='log path')
+parser.add_argument('--logname', type=str, default='expdelete.txt',
+                    help='logfile name')
+parser.add_argument('--clip', type=int, default=0,
+                    help='gradient clipping')
 
-logging.info('batch_size:{},enc_size:{},dec_size{},z_size{},N{},img_size{},A{},B:{},T:{},use_att{},use_cuda{},lrt{},log_interval{},epoch_num:{}'.format(batch_size,enc_size,dec_size,z_size,N,img_size,A,B,T,use_att,use_cuda,lrt,log_interval,epoch_num))
+args = parser.parse_args()
+logpath=args.logpath
+logName=args.logname
+clip=args.clip
+
+
 #you shouldn't use normalize if you use BCE loss and sigmoid for x_recons
 # train_transforms=transforms.Compose([transforms.ToTensor(),transforms.Normalize([0.5,0.5,0.5],[0.5,0.5,0.5])])
 train_transforms=transforms.Compose([transforms.ToTensor()])
@@ -27,17 +40,17 @@ test_transforms=transforms.Compose([transforms.ToTensor()])
 test_dataset=torchvision.datasets.MNIST(root='../data',download=True,train=False,transform=test_transforms)
 test_loader=torch.utils.data.DataLoader(dataset=test_dataset,batch_size=batch_size,shuffle=True,num_workers=4,drop_last=True)
 
-logPath = './log'
-fileName = 'log1'
-if os.path.exists(logPath) == False:
-    os.mkdir(logPath)
+#logpath = './log'
+#logName = 'log1'
+if os.path.exists(logpath) == False:
+    os.mkdir(logpath)
 # logFormatter = logging.Formatter("%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s")
 logFormatter = logging.Formatter("%(asctime)s  %(message)s")
 rootLogger = logging.getLogger()
 # if you forget to set level,you will print nothing
 rootLogger.setLevel(logging.DEBUG)
 
-fileHandler = logging.FileHandler("{0}/{1}.txt".format(logPath, fileName))
+fileHandler = logging.FileHandler("{0}/{1}.txt".format(logpath, logName))
 fileHandler.setFormatter(logFormatter)
 rootLogger.addHandler(fileHandler)
 
@@ -45,6 +58,8 @@ consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(logFormatter)
 rootLogger.addHandler(consoleHandler)
 
+logging.info('starting training with arguments %s', args)
+logging.info('batch_size:{},enc_size:{},dec_size{},z_size{},N{},img_size{},A{},B:{},T:{},use_att{},use_cuda{},lrt{},log_interval{},epoch_num:{}'.format(batch_size,enc_size,dec_size,z_size,N,img_size,A,B,T,use_att,use_cuda,lrt,log_interval,epoch_num))
 
 #how many batch=num of images/batch_size
 logging.info( "train dataloader length:{}".format(len(train_loader)))
@@ -447,9 +462,12 @@ def main():
             # print inputs.size(),mus.size(),sigmas.size(),logsigmas.size(),x_recons.size()
             loss,KLloss,BCEloss=loss_func(inputs,mus,sigmas,logsigmas,x_recons)
             loss.backward()
+            if clip!=0:
+            	torch.nn.utils.clip_grad_norm(model.parameters(), clip)
             optimizer.step()
             train_loss+=loss.data[0]
             avg_loss+=loss.cpu().data.numpy()
+            
             avg_BCEloss+=BCEloss.cpu().data.numpy()
             count=count+1
 
@@ -465,32 +483,34 @@ def main():
                 if count % 3000 == 0:
                     torch.save(model.state_dict(), 'save/weights_%d.tar' % (count))
                     generate_image(count)
+                avg_loss_list.append(avg_loss/100)
                 avg_loss = 0
                 avg_BCEloss=0
         end=time.time()
 
         logging.info('====> Epoch: {} Average Train loss: {:.4f};elapsed time:{:.2f}'.format(
               epoch, train_loss / len(train_loader),end-start))
+        train_loss_list.append(train_loss / len(train_loader))
         test(epoch)
 
-    np.save('avg_loss_list', np.array(avg_loss_list))
-    np.save('test_loss_list', np.array(test_loss_list))
-    np.save('train_loss_list', np.array(train_loss_list))
+    np.save(logpath+'avg_loss_list', np.array(avg_loss_list))
+    np.save(logpath+'test_loss_list', np.array(test_loss_list))
+    np.save(logpath+'train_loss_list', np.array(train_loss_list))
 
     xs_avg = np.arange(0, len(avg_loss_list))
     plt.figure()
     plt.plot(xs_avg, avg_loss_list)
-    plt.savefig('avg_loss_batch.png', format='png')
+    plt.savefig(logpath+'avg_loss_batch.png', format='png')
 
     plt.figure()
     xs_test = np.arange(0, len(test_loss_list))
     plt.plot(xs_test, test_loss_list)
-    plt.savefig('test_loss_epoch.png', format='png')
+    plt.savefig(logpath+'test_loss_epoch.png', format='png')
 
     plt.figure()
     xs_train = np.arange(0, len(train_loss_list))
     plt.plot(xs_train, train_loss_list)
-    plt.savefig('train_loss_epoch.png', format='png')
+    plt.savefig(logpath+'train_loss_epoch.png', format='png')
 
         # torch.save(model.state_dict(),'../models/DRAW/'+'DRAW'+str(epoch))
     return
